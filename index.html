@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#f5f2ed">
+<title>みんなのぬりえ</title>
+<style>
+:root{--bg:#f5f2ed;--panel:#fff;--ink:#242424;--accent:#4f6d7a;--line:#dedbd5}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif}
+header{text-align:center;padding:15px 12px 8px}h1{font-size:1.3rem;margin:0}header p{margin:5px 0 0;color:#666;font-size:.85rem}
+main{max-width:1000px;margin:auto;padding:10px;display:grid;gap:12px}
+.panel,.canvas-wrap{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px}
+.panel{display:grid;gap:13px}.section-title{font-size:.8rem;font-weight:700;color:#666;margin-bottom:6px}
+button,select{font:inherit}button{border:1px solid #d8d4cd;background:#fff;border-radius:10px;padding:10px 12px;min-height:42px;color:var(--ink);cursor:pointer}
+button.active{background:var(--accent);border-color:var(--accent);color:#fff}button:disabled{opacity:.45}
+select{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:white}
+.controls,.colors{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.swatch{width:34px;height:34px;min-height:34px;padding:0;border-radius:50%;border:2px solid #ddd}
+.swatch.active{outline:3px solid #222;outline-offset:2px}input[type=color]{width:40px;height:38px;border:0;background:none;padding:0}
+label{font-size:.9rem;display:flex;align-items:center;gap:8px}input[type=range]{width:150px;accent-color:var(--accent)}
+#brushOptions[hidden]{display:none}.status{font-size:.8rem;color:#555;min-height:1.2em}
+#stage{position:relative;width:100%;aspect-ratio:4/5;max-height:68vh;margin:auto;background:white;touch-action:none;overflow:hidden;border-radius:10px}
+#colorLayer,#lineArt{position:absolute;inset:0;width:100%;height:100%;display:block}#colorLayer{z-index:1}#lineArt{z-index:2;pointer-events:none}
+.hint{text-align:center;color:#666;font-size:.78rem;padding:8px 4px 2px}
+footer{text-align:center;color:#777;font-size:.75rem;padding:0 12px 18px}
+@media(min-width:760px){main{grid-template-columns:290px 1fr;align-items:start}.panel{grid-column:1;grid-row:1}.canvas-wrap{grid-column:2;grid-row:1}#stage{max-height:78vh}}
+</style>
+</head>
+<body>
+<header><h1>みんなのぬりえ</h1><p>好きな線画を選んで、自由に色を塗ろう。</p></header>
+<main>
+<section class="panel">
+  <div><div class="section-title">ぬりえを選ぶ</div><select id="pictureSelect" aria-label="ぬりえを選ぶ"><option>読み込み中…</option></select></div>
+  <div><div class="section-title">塗り方</div><div class="controls"><button id="bucketBtn" class="active" type="button">🪣 領域塗り</button><button id="brushBtn" type="button">🖌 自由描画</button></div></div>
+  <div><div class="section-title">色</div><div class="colors" id="palette">
+    <button class="swatch active" data-color="#f44336" style="background:#f44336" aria-label="赤"></button>
+    <button class="swatch" data-color="#ff9800" style="background:#ff9800" aria-label="オレンジ"></button>
+    <button class="swatch" data-color="#ffeb3b" style="background:#ffeb3b" aria-label="黄色"></button>
+    <button class="swatch" data-color="#4caf50" style="background:#4caf50" aria-label="緑"></button>
+    <button class="swatch" data-color="#03a9f4" style="background:#03a9f4" aria-label="水色"></button>
+    <button class="swatch" data-color="#3f51b5" style="background:#3f51b5" aria-label="青"></button>
+    <button class="swatch" data-color="#9c27b0" style="background:#9c27b0" aria-label="紫"></button>
+    <button class="swatch" data-color="#795548" style="background:#795548" aria-label="茶色"></button>
+    <button class="swatch" data-color="#222222" style="background:#222" aria-label="黒"></button>
+    <button class="swatch" data-color="#ffffff" style="background:#fff" aria-label="白"></button>
+    <label title="好きな色">＋<input type="color" id="customColor" value="#ff4f81" aria-label="好きな色を選ぶ"></label>
+  </div></div>
+  <div id="brushOptions" hidden><div class="section-title">筆の太さ</div><label><input type="range" id="brushSize" min="2" max="42" value="12"><span id="sizeValue">12 px</span></label></div>
+  <div class="controls"><button id="undoBtn" type="button" disabled>↶ 取り消し</button><button id="clearBtn" type="button">全消去</button><button id="saveBtn" type="button">PNG保存</button></div>
+  <div class="status" id="status" role="status">ぬりえを読み込んでいます。</div>
+</section>
+<section class="canvas-wrap"><div id="stage"><canvas id="colorLayer" width="480" height="600"></canvas><canvas id="lineArt" width="480" height="600"></canvas></div><div class="hint">領域塗り：囲まれた場所をタップ ／ 自由描画：指を滑らせる</div></section>
+</main>
+<footer>みんなのぬりえ · 描画はお使いの端末内で処理されます</footer>
+<script>
+(() => {
+ const W=480,H=600, colorCanvas=document.getElementById('colorLayer'), lineCanvas=document.getElementById('lineArt');
+ const colorCtx=colorCanvas.getContext('2d',{willReadFrequently:true}),lineCtx=lineCanvas.getContext('2d',{willReadFrequently:true});
+ const stage=document.getElementById('stage'),status=document.getElementById('status'),select=document.getElementById('pictureSelect');
+ let mode='bucket',color='#f44336',brushSize=12,drawing=false,history=[],pictures=[];
+ function resetCanvas(){colorCtx.fillStyle='#fff';colorCtx.fillRect(0,0,W,H);history=[];updateUndo();}
+ function snapshot(){try{history.push(colorCtx.getImageData(0,0,W,H));if(history.length>20)history.shift();updateUndo()}catch(e){}}
+ function updateUndo(){document.getElementById('undoBtn').disabled=!history.length}
+ function setMode(next){mode=next;document.getElementById('bucketBtn').classList.toggle('active',mode==='bucket');document.getElementById('brushBtn').classList.toggle('active',mode==='brush');document.getElementById('brushOptions').hidden=mode!=='brush';status.textContent=mode==='bucket'?'塗りたい領域をタップしてください。':'指を滑らせて自由に描けます。'}
+ function point(e){const r=stage.getBoundingClientRect();return{x:Math.max(0,Math.min(W-1,Math.floor((e.clientX-r.left)/r.width*W))),y:Math.max(0,Math.min(H-1,Math.floor((e.clientY-r.top)/r.height*H)))}}
+ function hexToRgb(hex){return[parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)]}
+ async function loadGallery(){
+   try{
+     const res=await fetch('./images.json?cache='+Date.now());
+     if(!res.ok)throw new Error('画像一覧が見つかりません');
+     pictures=await res.json();
+     select.innerHTML='';
+     if(!pictures.length){select.innerHTML='<option value="">線画がまだありません</option>';status.textContent='管理者が images フォルダに画像を追加すると、ここに表示されます。';return}
+     pictures.forEach((p,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=p.title||p.file;select.appendChild(o)});
+     await loadPicture(0);
+   }catch(e){select.innerHTML='<option value="">画像一覧を読み込めません</option>';status.textContent='画像一覧の取得に失敗しました。GitHub Actionsの実行状況を確認してください。'}
+ }
+ function loadPicture(index){
+   const p=pictures[index];if(!p)return;
+   const img=new Image();
+   img.onload=()=>{
+     lineCtx.clearRect(0,0,W,H);lineCtx.fillStyle='#fff';lineCtx.fillRect(0,0,W,H);
+     // Contain the image without distorting its proportions.
+     const scale=Math.min(W/img.width,H/img.height),w=img.width*scale,h=img.height*scale;
+     lineCtx.drawImage(img,(W-w)/2,(H-h)/2,w,h);
+     resetCanvas();status.textContent='「'+(p.title||p.file)+'」を選択中です。';
+   };
+   img.onerror=()=>status.textContent='画像を読み込めません。ファイル名と公開設定を確認してください。';
+   img.src=p.path;
+ }
+ function bucket(x,y){
+   const img=colorCtx.getImageData(0,0,W,H),d=img.data,line=lineCtx.getImageData(0,0,W,H).data,idx=(y*W+x)*4;
+   const target=[d[idx],d[idx+1],d[idx+2],d[idx+3]],replacement=hexToRgb(color);
+   if(target[0]===replacement[0]&&target[1]===replacement[1]&&target[2]===replacement[2]&&target[3]===255)return;
+   const isLine=i=>line[i]<100&&line[i+1]<100&&line[i+2]<100;
+   if(isLine(idx)){status.textContent='黒い線ではなく、囲まれた部分をタップしてください。';return}
+   snapshot();const stack=[x,y],seen=new Uint8Array(W*H),tol=38;let count=0;
+   const matches=p=>{const i=p*4;return !seen[p]&&!isLine(i)&&Math.abs(d[i]-target[0])<=tol&&Math.abs(d[i+1]-target[1])<=tol&&Math.abs(d[i+2]-target[2])<=tol&&d[i+3]===target[3]};
+   while(stack.length){const cy=stack.pop(),cx=stack.pop();if(cx<0||cx>=W||cy<0||cy>=H)continue;const p=cy*W+cx;if(!matches(p))continue;
+    let l=cx,r=cx;while(l>0&&matches(cy*W+l-1))l--;while(r<W-1&&matches(cy*W+r+1))r++;
+    for(let xx=l;xx<=r;xx++){const q=cy*W+xx,i=q*4;seen[q]=1;d[i]=replacement[0];d[i+1]=replacement[1];d[i+2]=replacement[2];d[i+3]=255;count++;if(cy>0&&matches((cy-1)*W+xx))stack.push(xx,cy-1);if(cy<H-1&&matches((cy+1)*W+xx))stack.push(xx,cy+1)}
+   }
+   colorCtx.putImageData(img,0,0);status.textContent=count?'領域を塗りました。':'この部分は塗れませんでした。';
+ }
+ stage.addEventListener('pointerdown',e=>{e.preventDefault();stage.setPointerCapture(e.pointerId);const p=point(e);if(mode==='bucket'){bucket(p.x,p.y);return}snapshot();drawing=true;colorCtx.strokeStyle=color;colorCtx.lineWidth=brushSize;colorCtx.lineCap='round';colorCtx.lineJoin='round';colorCtx.beginPath();colorCtx.moveTo(p.x,p.y);colorCtx.lineTo(p.x+.1,p.y+.1);colorCtx.stroke()});
+ stage.addEventListener('pointermove',e=>{if(!drawing||mode!=='brush')return;e.preventDefault();const p=point(e);colorCtx.lineTo(p.x,p.y);colorCtx.stroke()});
+ function endDraw(){if(drawing){drawing=false;colorCtx.closePath()}}stage.addEventListener('pointerup',endDraw);stage.addEventListener('pointercancel',endDraw);
+ document.getElementById('bucketBtn').onclick=()=>setMode('bucket');document.getElementById('brushBtn').onclick=()=>setMode('brush');
+ select.onchange=()=>loadPicture(Number(select.value));
+ document.querySelectorAll('.swatch').forEach(b=>b.onclick=()=>{color=b.dataset.color;document.querySelectorAll('.swatch').forEach(x=>x.classList.toggle('active',x===b));document.getElementById('customColor').value=color});
+ document.getElementById('customColor').oninput=e=>{color=e.target.value;document.querySelectorAll('.swatch').forEach(x=>x.classList.remove('active'))};
+ document.getElementById('brushSize').oninput=e=>{brushSize=+e.target.value;document.getElementById('sizeValue').textContent=brushSize+' px'};
+ document.getElementById('undoBtn').onclick=()=>{if(history.length){colorCtx.putImageData(history.pop(),0,0);updateUndo();status.textContent='ひとつ前に戻しました。'}};
+ document.getElementById('clearBtn').onclick=()=>{resetCanvas();status.textContent='色を消しました。'};
+ document.getElementById('saveBtn').onclick=()=>{const out=document.createElement('canvas');out.width=W;out.height=H;const c=out.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,W,H);c.drawImage(colorCanvas,0,0);c.drawImage(lineCanvas,0,0);const a=document.createElement('a');a.download='nurie.png';a.href=out.toDataURL('image/png');a.click();status.textContent='PNG画像を保存しました。'};
+ loadGallery();
+})();
+</script>
+</body></html>
